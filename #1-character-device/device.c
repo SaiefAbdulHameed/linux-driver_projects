@@ -37,18 +37,20 @@ static ssize_t read_drive(struct file *file,
                           loff_t *off)
 {
     size_t to_copy, not_copy, delta;
+    if(*off >= buffer_pointer){
+    	return -ENOSPC;
+    }
+    to_copy = min(count, buffer_pointer - (size_t)*off);
 
-    to_copy = min(count, buffer_pointer);
+    
 
-    if (to_copy == 0)
-        return 0;
-
-    not_copy = copy_to_user(user_buffer, buffer, to_copy);
+    not_copy = copy_to_user(user_buffer, buffer+*off, to_copy);
+    
     delta = to_copy - not_copy;
-
+	*off +=delta ;
     if (not_copy)
         pr_warn("Failed to copy %zu byte(s) to userspace\n", not_copy);
-
+		
     return delta;
 }
 
@@ -58,13 +60,16 @@ static ssize_t write_drive(struct file *file,
                            loff_t *off)
 {
     size_t to_copy, not_copy, delta;
+	if(*off >= sizeof(buffer)){
+		return -ENOSPC;
+	}
+    to_copy = min(count, sizeof(buffer)- (size_t)*off);
 
-    to_copy = min(count, sizeof(buffer));
-
-    not_copy = copy_from_user(buffer, user_buffer, to_copy);
+    not_copy = copy_from_user(buffer+*off, user_buffer, to_copy);
     delta = to_copy - not_copy;
 
-    buffer_pointer = delta;
+     *off += delta;
+    buffer_pointer = *off;
 
     if (not_copy)
         pr_warn("Failed to copy %zu byte(s) from userspace\n", not_copy);

@@ -4,13 +4,13 @@
 #include <linux/cdev.h>
 #include <linux/device.h>
 #include <linux/uaccess.h>
-
+#include <linux/mutex.h>
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("SAIEF");
 MODULE_DESCRIPTION("Simple Character Driver");
 
 #define MY_DEVICE_NAME "saief_driver"
-
+static DEFINE_MUTEX(my_mutex);
 static dev_t dev_nr;
 static struct cdev my_cdev;
 static struct class *my_class;
@@ -36,9 +36,12 @@ static ssize_t read_drive(struct file *file,
                           size_t count,
                           loff_t *off)
 {
+	
     size_t to_copy, not_copy, delta;
+    mutex_lock(&my_mutex);
     if(*off >= buffer_pointer){
-    	return -ENOSPC;
+    mutex_unlock(&my_mutex);
+    	return 0;
     }
     to_copy = min(count, buffer_pointer - (size_t)*off);
 
@@ -50,7 +53,7 @@ static ssize_t read_drive(struct file *file,
 	*off +=delta ;
     if (not_copy)
         pr_warn("Failed to copy %zu byte(s) to userspace\n", not_copy);
-		
+		mutex_unlock(&my_mutex);
     return delta;
 }
 
@@ -59,8 +62,11 @@ static ssize_t write_drive(struct file *file,
                            size_t count,
                            loff_t *off)
 {
+
     size_t to_copy, not_copy, delta;
+    	mutex_lock(&my_mutex);
 	if(*off >= sizeof(buffer)){
+		mutex_unlock(&my_mutex);
 		return -ENOSPC;
 	}
     to_copy = min(count, sizeof(buffer)- (size_t)*off);
@@ -73,7 +79,7 @@ static ssize_t write_drive(struct file *file,
 
     if (not_copy)
         pr_warn("Failed to copy %zu byte(s) from userspace\n", not_copy);
-
+	mutex_unlock(&my_mutex);
     return delta;
 }
 

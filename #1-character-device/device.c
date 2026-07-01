@@ -5,6 +5,12 @@
 #include <linux/device.h>
 #include <linux/uaccess.h>
 #include <linux/mutex.h>
+#include<linux/ioctl.h>
+
+#define MY_MAGIC 'S'
+#define CLEAR_BUF _IO(MY_MAGIC,1)
+#define READ_BUF _IOR(MY_MAGIC,2,int)
+#define WRITE_BUF _IOW(MY_MAGIC,3,int)
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("SAIEF");
 MODULE_DESCRIPTION("Simple Character Driver");
@@ -18,6 +24,7 @@ static struct device *my_device;
 
 static char buffer[255];
 static size_t buffer_pointer;
+static size_t buf_limit =255;
 
 static int open_driver(struct inode *inode, struct file *file)
 {
@@ -30,6 +37,8 @@ static int close_driver(struct inode *inode, struct file *file)
     pr_info("Device closed\n");
     return 0;
 }
+
+
 
 static ssize_t read_drive(struct file *file,
                           char __user *user_buffer,
@@ -65,11 +74,11 @@ static ssize_t write_drive(struct file *file,
 
     size_t to_copy, not_copy, delta;
     	mutex_lock(&my_mutex);
-	if(*off >= sizeof(buffer)){
+	if(*off >= buf_limit){
 		mutex_unlock(&my_mutex);
 		return -ENOSPC;
 	}
-    to_copy = min(count, sizeof(buffer)- (size_t)*off);
+    to_copy = min(count, buf_limit- (size_t)*off);
 
     not_copy = copy_from_user(buffer+*off, user_buffer, to_copy);
     delta = to_copy - not_copy;
@@ -77,10 +86,43 @@ static ssize_t write_drive(struct file *file,
      *off += delta;
     buffer_pointer = *off;
 
-    if (not_copy)
+    if(not_copy)
         pr_warn("Failed to copy %zu byte(s) from userspace\n", not_copy);
+     
 	mutex_unlock(&my_mutex);
     return delta;
+}
+static long driver_ioctl(struct file *file, unsigned int cmd ,unsigned long arg )
+    {
+        switch(cmd){
+            case CLEAR_BUF : 
+                            mutex_lock(&my_mutex);
+                            memset(buffer,0,sizeof(buffer));
+                            buffer_pointer = 0;
+                            mutex_unlock(&my_mutex);
+                            break;
+            case READ_BUF : 
+                        mutex_lock(&my_mutex);
+                        if(copy_to_user((int __user *)arg,&buffer_pointer,sizeof(int))){
+                            mutex_unlock(&my_mutex);
+                            return -EFAULT;
+                        }
+                        mutex_unlock(&my_mutex);
+                        break;
+                        
+            case WRITE_BUF : 
+                        mutex_lock(&my_mutex);
+                        if(copy_from_user(&buf_limit,(int __user *)arg,sizeof(int))){
+                            mutex_unlock(&my_mutex);
+                            return -EFAULT; 
+                        }
+                        mutex_unlock(&my_mutex);
+                        break;
+            default:
+                 return -EINVAL;
+
+    }
+    return 0;
 }
 
 static struct file_operations fops = {
@@ -88,6 +130,8 @@ static struct file_operations fops = {
     .open = open_driver,
     .release = close_driver,
     .read = read_drive,
+    .unlocked_ioctl = driver_ioctl,
+     .llseek         = default_llseek,
     .write = write_drive,
 };
 
